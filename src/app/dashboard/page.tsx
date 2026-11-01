@@ -22,9 +22,6 @@ import {
   X,
   MoreHorizontal,
   CheckCircle,
-  Truck,
-  Clock,
-  XCircle,
 } from "lucide-react";
 
 const stats = [

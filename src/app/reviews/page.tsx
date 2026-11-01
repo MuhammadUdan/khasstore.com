@@ -11,7 +11,6 @@ import {
   Settings,
   Store,
   Star,
-  Bell,
   Menu,
   X,
   Search,

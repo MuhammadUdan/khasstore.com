@@ -11,7 +11,6 @@ import {
   Settings,
   Store,
   Star,
-  Bell,
   Menu,
   X,
   TrendingUp,
@@ -82,7 +81,6 @@ const transactions = [
   },
 ];
 
-type Transaction = (typeof transactions)[number];
 
 const statusStyles: Record<string, string> = {
   Paid: "bg-green-50 text-green-700",

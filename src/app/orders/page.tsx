@@ -26,7 +26,6 @@ import {
   ChevronRight,
   Filter,
   Mail,
-  RefreshCw,
 } from "lucide-react";
 
 const initialOrders = [

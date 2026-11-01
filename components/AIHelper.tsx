@@ -6,10 +6,8 @@ import { useEffect, useRef, useState } from "react";
 import {
   X,
   Send,
-  MessageCircle,
   Bot,
   Trash2,
-  Minimize2,
 } from "lucide-react";
 
 type Language = "urdu" | "roman" | "english";

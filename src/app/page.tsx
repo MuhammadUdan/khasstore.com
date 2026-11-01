@@ -409,7 +409,7 @@ useEffect(() => {
             <div>
               <span className="text-xs font-bold uppercase tracking-widest text-blue-600">Explore collection</span>
               <h2 className="mt-2 text-2xl font-black tracking-tight sm:text-3xl">Shop by Category</h2>
-              <p className="mt-2 text-sm text-slate-500">Find exactly what you're looking for.</p>
+              <p className="mt-2 text-sm text-slate-500">Find exactly what you&apos;re looking for.</p>
             </div>
             <a href="#products" className="flex shrink-0 items-center gap-1 text-sm font-bold text-blue-600 hover:text-blue-800">
               Explore <ChevronRight size={17} />

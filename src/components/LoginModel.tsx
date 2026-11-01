@@ -187,7 +187,7 @@ export default function LoginModal({
         </form>
 
         <p className="mt-5 text-center text-sm text-gray-600">
-          Don't have an account?{" "}
+          Don&apos;t have an account?
           <button
             type="button"
             onClick={onRegisterClick}
