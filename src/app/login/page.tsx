@@ -21,7 +21,6 @@ import {
   Heart,
   Tag,
   ShoppingCart,
-  Package,
   Star,
 } from "lucide-react";
 import { createClient } from "../lib/supabase/client";
