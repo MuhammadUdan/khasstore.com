@@ -1,7 +1,7 @@
 
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { FormEvent } from "react";
 import Link from "next/link";
 import {
@@ -22,61 +22,17 @@ import {
   CheckCircle,
   Eye,
 } from "lucide-react";
+import { createClient } from "@/app/lib/supabase/client";
 
-const initialProducts = [
-  {
-    id: 1,
-    name: "Wireless Bluetooth Headphones",
-    category: "Electronics",
-    price: 3499,
-    stock: 42,
-    status: "Active",
-    image:
-      "https://images.unsplash.com/photo-1505740420928-5e560c06d30e?w=500",
-  },
-  {
-    id: 2,
-    name: "Premium Smart Watch",
-    category: "Electronics",
-    price: 5499,
-    stock: 18,
-    status: "Active",
-    image:
-      "https://images.unsplash.com/photo-1523275335684-37898b6baf30?w=500",
-  },
-  {
-    id: 3,
-    name: "Wireless Bluetooth Speaker",
-    category: "Accessories",
-    price: 2799,
-    stock: 7,
-    status: "Low Stock",
-    image:
-      "https://images.unsplash.com/photo-1608043152269-423dbba4e7e1?w=500",
-  },
-  {
-    id: 4,
-    name: "Minimal Desk Accessories",
-    category: "Home & Living",
-    price: 1899,
-    stock: 0,
-    status: "Out of Stock",
-    image:
-      "https://images.unsplash.com/photo-1494438639946-1ebd1d20bf85?w=500",
-  },
-  {
-    id: 5,
-    name: "Classic Wrist Watch",
-    category: "Fashion",
-    price: 4299,
-    stock: 25,
-    status: "Active",
-    image:
-      "https://images.unsplash.com/photo-1524805444758-089113d48a6d?w=500",
-  },
-];
-
-type Product = (typeof initialProducts)[number];
+type Product = {
+  id: string;
+  name: string;
+  category: string;
+  price: number;
+  stock: number;
+  status: "Active" | "Low Stock" | "Out of Stock";
+  image: string;
+};
 
 const categories = [
   "Electronics",
@@ -94,6 +50,12 @@ const navigation = [
   { label: "Reviews", href: "/reviews", icon: Star },
   { label: "Settings", href: "/settings", icon: Settings },
 ];
+
+function getProductStatus(stock: number): Product["status"] {
+  if (stock === 0) return "Out of Stock";
+  if (stock <= 10) return "Low Stock";
+  return "Active";
+}
 
 function StatusBadge({ status }: { status: string }) {
   const styles: Record<string, string> = {
@@ -114,17 +76,20 @@ function StatusBadge({ status }: { status: string }) {
 }
 
 export default function ProductsPage() {
-  const [products, setProducts] = useState<Product[]>(initialProducts);
+  const supabase = createClient();
+
+  const [products, setProducts] = useState<Product[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
 
   const [search, setSearch] = useState("");
   const [category, setCategory] = useState("All Categories");
   const [filter, setFilter] = useState("All");
 
   const [showAddForm, setShowAddForm] = useState(false);
-  const [editingId, setEditingId] = useState<number | null>(null);
+  const [editingId, setEditingId] = useState<string | null>(null);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
-
-  // Quick View State
   const [viewProduct, setViewProduct] = useState<Product | null>(null);
 
   const [form, setForm] = useState({
@@ -134,6 +99,65 @@ export default function ProductsPage() {
     stock: "",
     image: "",
   });
+  const [selectedImage, setSelectedImage] = useState<File | null>(null);
+  const [imagePreview, setImagePreview] = useState("");
+
+  useEffect(() => {
+    loadProducts();
+  }, []);
+
+  useEffect(() => {
+    if (!selectedImage) {
+      setImagePreview("");
+      return;
+    }
+
+    const previewUrl = URL.createObjectURL(selectedImage);
+    setImagePreview(previewUrl);
+
+    return () => URL.revokeObjectURL(previewUrl);
+  }, [selectedImage]);
+
+  const loadProducts = async () => {
+    setLoading(true);
+    setError("");
+
+    const {
+      data: { user },
+      error: authError,
+    } = await supabase.auth.getUser();
+
+    if (authError || !user) {
+      setError("Please login to view your products.");
+      setLoading(false);
+      return;
+    }
+
+    const { data, error: fetchError } = await supabase
+      .from("products")
+      .select("id, name, category, price, stock, image_url")
+      .eq("seller_id", user.id)
+      .order("created_at", { ascending: false });
+
+    if (fetchError) {
+      setError(fetchError.message);
+      setLoading(false);
+      return;
+    }
+
+    const formattedProducts: Product[] = (data || []).map((item) => ({
+      id: item.id,
+      name: item.name,
+      category: item.category || "Uncategorized",
+      price: Number(item.price),
+      stock: Number(item.stock),
+      status: getProductStatus(Number(item.stock)),
+      image: item.image_url || "",
+    }));
+
+    setProducts(formattedProducts);
+    setLoading(false);
+  };
 
   const filteredProducts = products.filter((product) => {
     const query = search.trim().toLowerCase();
@@ -172,11 +196,12 @@ export default function ProductsPage() {
       image: "",
     });
 
+    setSelectedImage(null);
     setEditingId(null);
     setShowAddForm(false);
   };
 
-  const handleSaveProduct = (e: FormEvent<HTMLFormElement>) => {
+  const handleSaveProduct = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
 
     const price = Number(form.price);
@@ -193,52 +218,94 @@ export default function ProductsPage() {
       return;
     }
 
-    const status =
-      stock === 0
-        ? "Out of Stock"
-        : stock <= 10
-        ? "Low Stock"
-        : "Active";
+    setSaving(true);
 
-    if (editingId !== null) {
-      setProducts((previous) =>
-        previous.map((product) =>
-          product.id === editingId
-            ? {
-                ...product,
-                name: form.name.trim(),
-                category: form.category,
-                price,
-                stock,
-                status,
-                image: form.image.trim() || product.image,
-              }
-            : product
-        )
-      );
-    } else {
-      const newProduct: Product = {
-        id: Date.now(),
-        name: form.name.trim(),
-        category: form.category,
-        price,
-        stock,
-        status,
-        image:
-          form.image.trim() ||
-          "https://images.unsplash.com/photo-1542291026-7eec264c27ff?w=500",
-      };
+    const {
+      data: { user },
+      error: authError,
+    } = await supabase.auth.getUser();
 
-      setProducts((previous) => [newProduct, ...previous]);
+    if (authError || !user) {
+      alert("Please login again.");
+      setSaving(false);
+      return;
     }
 
+    let imageUrl = form.image.trim() || null;
+
+    if (selectedImage) {
+      const safeFileName = selectedImage.name.replace(/[^a-zA-Z0-9.-]/g, "-");
+      const filePath = `${user.id}/${crypto.randomUUID()}-${safeFileName}`;
+
+      const { error: uploadError } = await supabase.storage
+        .from("product-images")
+        .upload(filePath, selectedImage, {
+          cacheControl: "3600",
+          upsert: false,
+          contentType: selectedImage.type,
+        });
+
+      if (uploadError) {
+        alert("Image upload failed: " + uploadError.message);
+        setSaving(false);
+        return;
+      }
+
+      const { data: publicUrlData } = supabase.storage
+        .from("product-images")
+        .getPublicUrl(filePath);
+
+      imageUrl = publicUrlData.publicUrl;
+    }
+
+    const productData = {
+      name: form.name.trim(),
+      category: form.category,
+      price,
+      stock,
+      image_url: imageUrl,
+      status: "active",
+    };
+
+    let saveError;
+
+    if (editingId !== null) {
+      const { error } = await supabase
+        .from("products")
+        .update(productData)
+        .eq("id", editingId)
+        .eq("seller_id", user.id);
+
+      saveError = error;
+    } else {
+      const { error } = await supabase
+        .from("products")
+        .insert({
+          ...productData,
+          seller_id: user.id,
+        });
+
+      saveError = error;
+    }
+
+    if (saveError) {
+      alert("Product save failed: " + saveError.message);
+      setSaving(false);
+      return;
+    }
+
+    await loadProducts();
+    setSaving(false);
     resetForm();
   };
 
   const handleEdit = (product: Product) => {
+    setSelectedImage(null);
     setForm({
       name: product.name,
-      category: product.category,
+      category: categories.includes(product.category)
+        ? product.category
+        : "Electronics",
       price: String(product.price),
       stock: String(product.stock),
       image: product.image,
@@ -248,20 +315,40 @@ export default function ProductsPage() {
     setShowAddForm(true);
   };
 
-  const handleDelete = (id: number) => {
+  const handleDelete = async (id: string) => {
     const confirmed = window.confirm(
       "Are you sure you want to delete this product?"
     );
 
-    if (confirmed) {
-      setProducts((previous) =>
-        previous.filter((product) => product.id !== id)
-      );
+    if (!confirmed) return;
 
-      setViewProduct((current) =>
-        current?.id === id ? null : current
-      );
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+
+    if (!user) {
+      alert("Please login again.");
+      return;
     }
+
+    const { error: deleteError } = await supabase
+      .from("products")
+      .delete()
+      .eq("id", id)
+      .eq("seller_id", user.id);
+
+    if (deleteError) {
+      alert("Delete failed: " + deleteError.message);
+      return;
+    }
+
+    setProducts((previous) =>
+      previous.filter((product) => product.id !== id)
+    );
+
+    setViewProduct((current) =>
+      current?.id === id ? null : current
+    );
   };
 
   const openAddForm = () => {
@@ -279,7 +366,6 @@ export default function ProductsPage() {
 
   return (
     <div className="min-h-screen bg-[#f5f7fb] text-slate-800">
-
       {/* Mobile Overlay */}
       {mobileMenuOpen && (
         <button
@@ -375,15 +461,15 @@ export default function ProductsPage() {
         <div className="border-t p-4">
           <div className="flex items-center gap-3 rounded-xl bg-slate-50 p-3">
             <div className="flex h-10 w-10 items-center justify-center rounded-full bg-blue-100 font-bold text-blue-800">
-              AE
+              KS
             </div>
 
             <div className="min-w-0">
               <p className="truncate text-sm font-bold">
-                Ali Electronics
+                Seller Account
               </p>
               <p className="text-xs text-slate-500">
-                Verified Seller
+                Seller Dashboard
               </p>
             </div>
           </div>
@@ -392,7 +478,6 @@ export default function ProductsPage() {
 
       {/* Main Content */}
       <main className="min-w-0 lg:ml-64">
-
         {/* Header */}
         <header className="sticky top-0 z-30 flex items-center justify-between border-b border-slate-200 bg-white px-4 py-4 md:px-8">
           <div className="flex min-w-0 items-center gap-3">
@@ -428,13 +513,12 @@ export default function ProductsPage() {
             </button>
 
             <div className="flex h-9 w-9 items-center justify-center rounded-full bg-[#163b75] text-xs font-bold text-white">
-              AE
+              KS
             </div>
           </div>
         </header>
 
         <div className="space-y-7 p-4 md:p-8">
-
           {/* Welcome Banner */}
           <section className="flex flex-col justify-between gap-5 overflow-hidden rounded-2xl bg-gradient-to-r from-[#10264b] to-[#2860ad] p-6 text-white md:flex-row md:items-center md:p-8">
             <div>
@@ -460,6 +544,19 @@ export default function ProductsPage() {
               Add New Product
             </button>
           </section>
+
+          {/* Loading and Error */}
+          {loading && (
+            <div className="rounded-xl border bg-white p-8 text-center text-slate-500">
+              Loading your products...
+            </div>
+          )}
+
+          {error && (
+            <div className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">
+              {error}
+            </div>
+          )}
 
           {/* Summary Cards */}
           <section className="grid grid-cols-1 gap-4 sm:grid-cols-3">
@@ -508,7 +605,6 @@ export default function ProductsPage() {
 
           {/* Products Section */}
           <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
-
             {/* Search and Filters */}
             <div className="border-b p-4 sm:p-5">
               <div className="flex flex-col justify-between gap-4 xl:flex-row xl:items-center">
@@ -599,11 +695,17 @@ export default function ProductsPage() {
                     >
                       <td className="px-5 py-4">
                         <div className="flex items-center gap-3">
-                          <img
-                            src={product.image}
-                            alt={product.name}
-                            className="h-12 w-12 rounded-lg border object-cover"
-                          />
+                          {product.image ? (
+                            <img
+                              src={product.image}
+                              alt={product.name}
+                              className="h-12 w-12 rounded-lg border object-cover"
+                            />
+                          ) : (
+                            <div className="flex h-12 w-12 items-center justify-center rounded-lg border bg-slate-50">
+                              <Package className="text-slate-400" size={20} />
+                            </div>
+                          )}
 
                           <span className="max-w-52 font-semibold">
                             {product.name}
@@ -671,13 +773,15 @@ export default function ProductsPage() {
                     </tr>
                   ))}
 
-                  {filteredProducts.length === 0 && (
+                  {!loading && filteredProducts.length === 0 && (
                     <tr>
                       <td
                         colSpan={6}
                         className="px-5 py-12 text-center text-slate-500"
                       >
-                        No products found. Try another search or filter.
+                        {products.length === 0
+                          ? "You have not added any products yet. Click Add New Product to get started."
+                          : "No products found. Try another search or filter."}
                       </td>
                     </tr>
                   )}
@@ -690,11 +794,17 @@ export default function ProductsPage() {
               {filteredProducts.map((product) => (
                 <div key={product.id} className="p-4">
                   <div className="flex gap-3">
-                    <img
-                      src={product.image}
-                      alt={product.name}
-                      className="h-20 w-20 shrink-0 rounded-xl border object-cover"
-                    />
+                    {product.image ? (
+                      <img
+                        src={product.image}
+                        alt={product.name}
+                        className="h-20 w-20 shrink-0 rounded-xl border object-cover"
+                      />
+                    ) : (
+                      <div className="flex h-20 w-20 shrink-0 items-center justify-center rounded-xl border bg-slate-50">
+                        <Package className="text-slate-400" size={24} />
+                      </div>
+                    )}
 
                     <div className="min-w-0 flex-1">
                       <h3 className="line-clamp-2 text-sm font-bold text-slate-800">
@@ -752,9 +862,11 @@ export default function ProductsPage() {
                 </div>
               ))}
 
-              {filteredProducts.length === 0 && (
+              {!loading && filteredProducts.length === 0 && (
                 <div className="px-5 py-12 text-center text-sm text-slate-500">
-                  No products found. Try another search or filter.
+                  {products.length === 0
+                    ? "You have not added any products yet. Click Add New Product to get started."
+                    : "No products found. Try another search or filter."}
                 </div>
               )}
             </div>
@@ -891,21 +1003,46 @@ export default function ProductsPage() {
 
               <div>
                 <label className="mb-2 block text-sm font-semibold">
-                  Product Image URL (optional)
+                  Product Picture
                 </label>
 
+                {(imagePreview || form.image) && (
+                  <div className="mb-3">
+                    <img
+                      src={imagePreview || form.image}
+                      alt="Product preview"
+                      className="h-40 w-40 rounded-xl border object-cover"
+                    />
+                  </div>
+                )}
+
                 <input
-                  type="url"
-                  value={form.image}
-                  onChange={(e) =>
-                    setForm({ ...form, image: e.target.value })
-                  }
-                  placeholder="https://example.com/product.jpg"
-                  className="w-full rounded-xl border px-4 py-3 text-sm outline-none focus:border-blue-500"
+                  type="file"
+                  accept="image/jpeg,image/png,image/webp"
+                  onChange={(e) => {
+                    const file = e.target.files?.[0];
+
+                    if (!file) return;
+
+                    if (!["image/jpeg", "image/png", "image/webp"].includes(file.type)) {
+                      alert("Please select a JPG, PNG, or WEBP image.");
+                      e.target.value = "";
+                      return;
+                    }
+
+                    if (file.size > 5 * 1024 * 1024) {
+                      alert("Image size must be 5 MB or less.");
+                      e.target.value = "";
+                      return;
+                    }
+
+                    setSelectedImage(file);
+                  }}
+                  className="w-full rounded-xl border px-4 py-3 text-sm"
                 />
 
                 <p className="mt-1 text-xs text-slate-400">
-                  Image upload integration will be added with backend.
+                  Upload JPG, PNG or WEBP. Maximum size: 5 MB.
                 </p>
               </div>
 
@@ -913,18 +1050,24 @@ export default function ProductsPage() {
                 <button
                   type="button"
                   onClick={resetForm}
-                  className="rounded-xl border px-5 py-3 text-sm font-semibold transition hover:bg-slate-50"
+                  disabled={saving}
+                  className="rounded-xl border px-5 py-3 text-sm font-semibold transition hover:bg-slate-50 disabled:opacity-50"
                 >
                   Cancel
                 </button>
 
                 <button
                   type="submit"
-                  className="flex items-center justify-center gap-2 rounded-xl bg-[#163b75] px-5 py-3 text-sm font-semibold text-white transition hover:bg-blue-800"
+                  disabled={saving}
+                  className="flex items-center justify-center gap-2 rounded-xl bg-[#163b75] px-5 py-3 text-sm font-semibold text-white transition hover:bg-blue-800 disabled:cursor-not-allowed disabled:opacity-60"
                 >
                   <CheckCircle size={17} />
 
-                  {editingId !== null ? "Save Changes" : "Add Product"}
+                  {saving
+                    ? "Saving..."
+                    : editingId !== null
+                    ? "Save Changes"
+                    : "Add Product"}
                 </button>
               </div>
             </form>
@@ -972,11 +1115,17 @@ export default function ProductsPage() {
 
             {/* Modal Body */}
             <div className="p-5">
-              <img
-                src={viewProduct.image}
-                alt={viewProduct.name}
-                className="h-48 w-full rounded-xl bg-slate-50 object-cover"
-              />
+              {viewProduct.image ? (
+                <img
+                  src={viewProduct.image}
+                  alt={viewProduct.name}
+                  className="h-48 w-full rounded-xl bg-slate-50 object-cover"
+                />
+              ) : (
+                <div className="flex h-48 w-full items-center justify-center rounded-xl bg-slate-50">
+                  <Package className="text-slate-400" size={40} />
+                </div>
+              )}
 
               <div className="mt-4">
                 <div className="flex items-start justify-between gap-3">
@@ -1013,8 +1162,8 @@ export default function ProductsPage() {
                     Product ID
                   </p>
 
-                  <p className="mt-1 text-lg font-bold text-slate-900">
-                    #{viewProduct.id}
+                  <p className="mt-1 break-all text-xs font-bold text-slate-900">
+                    {viewProduct.id}
                   </p>
                 </div>
               </div>

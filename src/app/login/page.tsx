@@ -247,7 +247,7 @@ export default function LoginPage() {
           email: email.trim().toLowerCase(),
           password,
           options: {
-            emailRedirectTo: `${window.location.origin}/registered`,
+            emailRedirectTo: `${window.location.origin}/auth/callback?next=/seller-profile`,
             data: {
               full_name: fullName.trim(),
               shop_name: shopName.trim(),
